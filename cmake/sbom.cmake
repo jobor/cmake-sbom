@@ -858,6 +858,73 @@ Relationship: ${SBOM_EXTERNAL_RELATIONSHIP}\")
 
 endfunction()
 
+# Append a custom license identifier to the SBOM. Use this after calling sbom_generate().
+#
+# If EXTRACTED_TEXT is not specified, read the license from the LICENSES directory in the current
+# project's root.
+function(sbom_license)
+	set(options "")
+	set(oneValueArgs
+	    LICENSE_ID
+	    EXTRACTED_TEXT
+	)
+	set(multiValueArgs "")
+	cmake_parse_arguments(
+		SBOM_LICENSE "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN}
+	)
+	if(SBOM_LICENSE_UNPARSED_ARGUMENTS)
+		message(FATAL_ERROR "Unknown arguments: ${SBOM_LICENSE_UNPARSED_ARGUMENTS}")
+	endif()
+
+	if("${SBOM_LICENSE_LICENSE_ID}" STREQUAL "")
+		message(FATAL_ERROR "Missing LICENSE_ID")
+	endif()
+
+	if("${SBOM_LICENSE_EXTRACTED_TEXT}" STREQUAL "")
+            set(licenses_dir "${PROJECT_SOURCE_DIR}/LICENSES")
+            file(READ "${licenses_dir}/${SBOM_LICENSE_LICENSE_ID}.txt" SBOM_LICENSE_EXTRACTED_TEXT)
+            string(PREPEND SBOM_LICENSE_EXTRACTED_TEXT "<text>")
+            string(APPEND SBOM_LICENSE_EXTRACTED_TEXT "</text>")
+	endif()
+
+	sbom_spdxid(
+		VARIABLE SBOM_LICENSE_SPDXID
+		CHECK "${SBOM_LICENSE_SPDXID}"
+		HINTS "SPDXRef-${SBOM_LICENSE_LICENSE_ID}"
+	)
+
+	set(SBOM_LAST_SPDXID
+	    "${SBOM_LICENSE_SPDXID}"
+	    PARENT_SCOPE
+	)
+
+	get_property(_sbom_project GLOBAL PROPERTY sbom_project)
+
+	if("${_sbom_project}" STREQUAL "")
+		message(FATAL_ERROR "Call sbom_generate() first")
+	endif()
+
+	file(
+		GENERATE
+		OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/${SBOM_LICENSE_SPDXID}.cmake
+		CONTENT
+			"
+			file(APPEND \"${PROJECT_BINARY_DIR}/sbom/sbom.spdx.in\"
+\"
+LicenseID: ${SBOM_LICENSE_LICENSE_ID}
+ExtractedText: ${SBOM_LICENSE_EXTRACTED_TEXT}
+\"
+			)
+			"
+	)
+
+	file(APPEND ${PROJECT_BINARY_DIR}/sbom/CMakeLists.txt
+	     "install(SCRIPT ${CMAKE_CURRENT_BINARY_DIR}/${SBOM_LICENSE_SPDXID}.cmake)
+"
+	)
+endfunction()
+
+
 # Append something to the SBOM. Use this after calling sbom_generate().
 function(sbom_add type)
 	if("${type}" STREQUAL "FILENAME")
@@ -870,6 +937,8 @@ function(sbom_add type)
 		sbom_package(${ARGV})
 	elseif("${type}" STREQUAL "EXTERNAL")
 		sbom_external(${ARGV})
+	elseif("${type}" STREQUAL "LICENSE_ID")
+		sbom_license(${ARGV})
 	else()
 		message(FATAL_ERROR "Unsupported sbom_add(${type})")
 	endif()
